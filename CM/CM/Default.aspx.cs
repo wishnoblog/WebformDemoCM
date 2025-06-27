@@ -29,6 +29,9 @@ public partial class CM_Default : System.Web.UI.Page
         }        
     }
 
+    /// <summary>
+    /// 綁定廠商資料到下拉選單
+    /// </summary>
     private void BindData_ddlVENDOR()
     {
         string sql = @"SELECT  
@@ -56,6 +59,9 @@ public partial class CM_Default : System.Web.UI.Page
         }
     }
 
+    /// <summary>
+    /// 綁定合約類型到單選按鈕
+    /// </summary>
     private void BindData_CONTRACT_TYPE()
     {
         string sql = @"
@@ -247,7 +253,7 @@ public partial class CM_Default : System.Web.UI.Page
         tbEND_DATE.Text = string.Empty;
         //tbVENDOR_ID.Text = string.Empty;
         ddlVENDOR_ID.ClearSelection();
-        tbCONTRACT_TYPE_ID.Text = string.Empty;
+        
         tbTERM.Text = string.Empty;
         tbAMOUNT.Text = string.Empty;
         tbINSTALLMENTS.Text = string.Empty;
@@ -285,7 +291,7 @@ public partial class CM_Default : System.Web.UI.Page
         int VENDOR_ID = 0;
         int.TryParse(ddlVENDOR_ID.SelectedValue, out VENDOR_ID);        
         int CONTRACT_TYPE_ID = 0;
-        int.TryParse(tbCONTRACT_TYPE_ID.Text, out CONTRACT_TYPE_ID);
+        int.TryParse(rblCONTRACT_TYPE_ID.SelectedValue, out CONTRACT_TYPE_ID);
         int TERM = 0;
         int.TryParse(tbTERM.Text, out TERM);
         int INSTALLMENTS = 0;
@@ -470,9 +476,10 @@ INSERT INTO [ZFCF_CM_CONTRACT]  (
                             hid.Value = id;
                             tbTITLE.Text = row["TITLE"].ToString();
                             ddlVENDOR_ID.SelectedValue = row["VENDOR_ID"].ToString();
+                            rblCONTRACT_TYPE_ID.SelectedValue = row["CONTRACT_TYPE_ID"].ToString();
                             tbSAP_NBR.Text = row["SAP_NBR"].ToString();
                             tbBPM_NBR.Text = row["BPM_NBR"].ToString();
-                            tbCONTRACT_TYPE_ID.Text = row["CONTRACT_TYPE_ID"].ToString();
+                            //tbCONTRACT_TYPE_ID.Text = row["CONTRACT_TYPE_ID"].ToString();
                             tbTERM.Text = row["TERM"].ToString();
                             tbAMOUNT.Text = row["AMOUNT"].ToString();
                             tbINSTALLMENTS.Text = row["INSTALLMENTS"].ToString();

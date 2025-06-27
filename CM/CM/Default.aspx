@@ -9,7 +9,7 @@
 <body>
     <form id="form1" runat="server">
         <h1>IT合約管理系統</h1>
-        <a href="#">維護廠商資料</a>
+        <a href="ZFCF_CM_VENDOR.aspx">維護廠商資料</a>
         <div runat="server" id="areaEdit" visible="false">
             <table>
                 <tr>
@@ -38,7 +38,7 @@
                     <td>合約類型流水號 (關聯ZFCF_CM_CONTRACT_TYPE)</td>
                     <td>
                         <asp:RadioButtonList runat="server" id="rblCONTRACT_TYPE_ID" RepeatDirection="Horizontal" RepeatColumns="10"></asp:RadioButtonList>
-                        <asp:TextBox runat="server" ID="tbCONTRACT_TYPE_ID"></asp:TextBox></td>
+                    </td>
                 </tr>
                 <tr>
                     <td>效期 (月)</td>
