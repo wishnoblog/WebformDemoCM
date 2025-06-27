@@ -1,10 +1,12 @@
-﻿using System;
+﻿using Microsoft.Ajax.Utilities;
+using System;
 using System.Activities.Expressions;
 using System.Collections;
 using System.Collections.Generic;
 using System.Configuration;
 using System.Data;
 using System.Data.SqlClient;
+using System.Drawing.Printing;
 using System.Linq;
 using System.Web;
 using System.Web.UI;
@@ -22,7 +24,64 @@ public partial class CM_Default : System.Web.UI.Page
         if (!IsPostBack)
         {
             BindData();
+            BindData_CONTRACT_TYPE();
+            BindData_ddlVENDOR();
         }        
+    }
+
+    private void BindData_ddlVENDOR()
+    {
+        string sql = @"SELECT  
+                            [VENDOR_ID]                          
+                          ,[VENDOR_SHORT]                          
+                      FROM [ZFCF_CM_VENDOR]
+                      where DISABLE = 0
+        ";
+        using (var conn = new SqlConnection(connectionString))
+        {
+            conn.Open();
+            using (var cmd = new SqlCommand(sql, conn))
+            {
+
+                DataTable dt = new DataTable();
+                using (SqlDataAdapter adapter = new SqlDataAdapter(cmd))
+                {
+                    adapter.Fill(dt);
+                }
+                ddlVENDOR_ID.DataSource = dt;
+                ddlVENDOR_ID.DataTextField = "VENDOR_SHORT"; //指定選項文字是資料表的哪個欄位
+                ddlVENDOR_ID.DataValueField = "VENDOR_ID"; //指定選項值 是資料表的哪個欄位
+                ddlVENDOR_ID.DataBind();
+            }
+        }
+    }
+
+    private void BindData_CONTRACT_TYPE()
+    {
+        string sql = @"
+            SELECT
+                [CONTRACT_TYPE_ID],
+                [CONTRACT_CATEGORY]
+            FROM [ZFCF_CM_CONTRACT_TYPE]";
+        using (var conn = new SqlConnection(connectionString))
+        {
+            conn.Open();
+
+            using (var cmd = new SqlCommand(sql, conn))
+            {
+                
+                DataTable dt = new DataTable();
+                using (SqlDataAdapter adapter = new SqlDataAdapter(cmd))
+                {
+                    adapter.Fill(dt);
+                }
+
+                rblCONTRACT_TYPE_ID.DataSource = dt;
+                rblCONTRACT_TYPE_ID.DataTextField = "CONTRACT_CATEGORY"; //顯示的文字
+                rblCONTRACT_TYPE_ID.DataValueField = "CONTRACT_TYPE_ID"; //值
+                rblCONTRACT_TYPE_ID.DataBind();                
+            }
+        }
     }
 
     /// <summary>
@@ -30,51 +89,141 @@ public partial class CM_Default : System.Web.UI.Page
     /// </summary>
     private void BindData()
     {
+        //分頁大小
+        int pageSize = gvList.PageSize;
+        //第幾頁
+        int pageIndex = gvList.PageIndex;
+        //計算跳過幾筆
+        //Page1 01-10 ,pageIndex = 0 * 10 = skip 0
+        //Page2 11-20 ,pageIndex = 1 * 10 = skip 10
+        int offset = pageIndex * pageSize;        
+        //總筆數
+        int totalCount = 0;
+        #region 組合查詢字串
+        string whereSql = "";
+        //有關鍵字才查詢
+        if (!string.IsNullOrWhiteSpace(tbBPM_Keyword.Text))
+        {
+            whereSql += " AND [BPM_NBR] like @bpm_nbr ";//小細節 前後加空白
+        }
+        if (!string.IsNullOrWhiteSpace(tbSAP_Keyword.Text))
+        {
+            whereSql += " AND [SAP_NBR] like @sap_nbr ";
+        }
+        //複合欄位搜尋 同時查SAP_NBR 和 BPM_NBR
+        if (!string.IsNullOrWhiteSpace(tbSAP_BPM_Keyword.Text))
+        {
+            whereSql += @" AND (
+                            ([SAP_NBR] like @sap_bpm_nbr) or 
+                            ([BPM_NBR] like @sap_bpm_nbr) 
+                        )";
+        }
+        //搜尋金額的起迄範圍
+        decimal amountStart = 0;
+        if (!string.IsNullOrWhiteSpace(tbAMOUNT_START.Text) && 
+            decimal.TryParse(tbAMOUNT_START.Text,out amountStart)) {
+            whereSql += "AND AMOUNT >= @amount_start ";
+        }
+        decimal amountEnd = 0;
+        if (!string.IsNullOrWhiteSpace(tbAMOUNT_END.Text) &&
+            decimal.TryParse(tbAMOUNT_END.Text, out amountEnd)
+            )
+        {
+            whereSql += "AND AMOUNT <= @amount_end ";
+        }
+        //搜尋廠商名稱
+        if (!string.IsNullOrWhiteSpace(tbVENDER_NAME_Keyword.Text))
+        {
+            whereSql += "AND ([VENDOR_SHORT] like @vender_name  or [VENDOR_NAME_NOMALIZE] like @vender_name)";
+        }
+        #endregion 組合查詢字串
         string sql = @"
             SELECT
                 [CONTRACT_ID]
-                  ,[VENDOR_ID]
+                  ,[VENDOR_SHORT] --廠商名稱
                   ,[TITLE]
                   ,[SAP_NBR]
                   ,[BPM_NBR]
-                  ,[CONTRACT_TYPE_ID]
+                  --,[CONTRACT_TYPE_ID]
+                  ,b.CONTRACT_CATEGORY --合約類型名稱
                   ,[TERM]
                   ,[START_DATE]
                   ,[END_DATE]
                   ,[AMOUNT]
                   ,[INSTALLMENTS]
-            FROM [ZFCF_CM_CONTRACT]";
+            FROM [ZFCF_CM_CONTRACT] AS a
+
+            JOIN [ZFCF_CM_CONTRACT_TYPE] AS b -- 組合合約類型
+            ON a.CONTRACT_TYPE_ID = b.CONTRACT_TYPE_ID
+
+            JOIN [ZFCF_CM_VENDOR] as c --組合廠商資料
+            on a.VENDOR_ID = c.VENDOR_ID
+
+            WHERE 1 = 1 " + whereSql  + @"
+            ORDER BY [CONTRACT_ID] DESC --ASC 升冪排序 DESC 降冪排序
+            OFFSET @offset ROWS  --跳過幾行
+            FETCH NEXT @pageSize ROWS ONLY; --抓接下來幾行
+";
+        //參數化查詢 整理成一個陣列
+        //使用 SqlParameter[] 陣列來存放參數
+        //SqlParameter[] parameters = new SqlParameter[]
+        //{
+        //    new SqlParameter("@pageSize", pageSize),
+        //    new SqlParameter("@offset", offset),
+        //    new SqlParameter("@bpm_nbr", "%" + tbBPM_Keyword.Text?.Trim().ToUpper() + "%"),
+        //    new SqlParameter("@sap_nbr", "%" + tbSAP_Keyword.Text?.Trim().ToUpper() + "%"),
+        //    new SqlParameter("@sap_bpm_nbr", "%" + tbSAP_BPM_Keyword.Text?.Trim().ToUpper() + "%"),
+        //    new SqlParameter("@amount_start", "%" + tbSAP_BPM_Keyword.Text?.Trim().ToUpper() + "%")
+        //};
         using (var conn = new SqlConnection(connectionString))
         {
             conn.Open();
-            
-            using(var cmd = new SqlCommand(sql, conn))
+            DataTable dt = new DataTable();
+            using (var cmd = new SqlCommand(sql, conn))
             {
-                //方法一 使用SQL Data Reader
-                //var reader = cmd.ExecuteReader();
-                //gvList.DataSource = reader;
-                //gvList.DataBind();
-
-                //方法二 使用DataTable
-                DataTable dt = new DataTable();
+                //cmd.Parameters.AddRange(parameters);
+                cmd.Parameters.AddWithValue("@pageSize", pageSize);
+                cmd.Parameters.AddWithValue("@offset", offset);
+                cmd.Parameters.AddWithValue("@bpm_nbr", "%" + tbBPM_Keyword.Text?.Trim().ToUpper() + "%");
+                cmd.Parameters.AddWithValue("@sap_nbr", "%" + tbSAP_Keyword.Text?.Trim().ToUpper() + "%");
+                cmd.Parameters.AddWithValue("@sap_bpm_nbr", "%" + tbSAP_BPM_Keyword.Text?.Trim().ToUpper() + "%");
+                cmd.Parameters.AddWithValue("@amount_start", amountStart);
+                cmd.Parameters.AddWithValue("@amount_end", amountEnd);
+                cmd.Parameters.AddWithValue("@vender_name", $"%{tbVENDER_NAME_Keyword.Text?.Trim().ToUpper()}%");
                 using (SqlDataAdapter adapter = new SqlDataAdapter(cmd))
                 {
                     adapter.Fill(dt);
                 }
-
-                gvList.DataSource = dt;
-                gvList.DataBind();
-
-                //方法三 DataSet 用在一次讀取很多個表
-                //DataSet ds = new DataSet();
-                //using (SqlDataAdapter adapter = new SqlDataAdapter(cmd))
-                //{
-                //    adapter.Fill(ds);
-                //}
-                //gvList.DataSource = ds;
-                //gvList.DataBind();
             }
-        }
+            //讀取資料筆數 這邊共用之前的conn連線
+            string sqlCount = @"
+                SELECT COUNT(1) 
+                FROM [ZFCF_CM_CONTRACT]  AS a
+                    
+                JOIN [ZFCF_CM_CONTRACT_TYPE] AS b -- 組合合約類型
+                ON a.CONTRACT_TYPE_ID = b.CONTRACT_TYPE_ID
+
+                JOIN [ZFCF_CM_VENDOR] as c --組合廠商資料
+                on a.VENDOR_ID = c.VENDOR_ID
+
+                WHERE 1 = 1 " + whereSql;
+            using(var cmd = new SqlCommand(sqlCount, conn)) {
+                //cmd.Parameters.AddRange(parameters);
+                cmd.Parameters.AddWithValue("@bpm_nbr", "%" + tbBPM_Keyword.Text?.Trim().ToUpper() + "%");
+                cmd.Parameters.AddWithValue("@sap_nbr", "%" + tbSAP_Keyword.Text?.Trim().ToUpper() + "%");
+                cmd.Parameters.AddWithValue("@sap_bpm_nbr", "%" + tbSAP_BPM_Keyword.Text?.Trim().ToUpper() + "%");
+                cmd.Parameters.AddWithValue("@amount_start", amountStart);
+                cmd.Parameters.AddWithValue("@amount_end", amountEnd);
+                cmd.Parameters.AddWithValue("@vender_name", $"%{tbVENDER_NAME_Keyword.Text?.Trim().ToUpper()}%");
+                //ExecuteScalar = 回傳第一列的第一格資料
+                totalCount = Convert.ToInt32(cmd.ExecuteScalar());
+                lbTotalCount.Text = totalCount.ToString();
+            }
+            gvList.VirtualItemCount = totalCount;
+            //gvList.AllowCustomPaging = true;
+            gvList.DataSource = dt;
+            gvList.DataBind();
+        }      
     }
     protected void btnAdd_Click(object sender, EventArgs e)
     {
@@ -84,14 +233,20 @@ public partial class CM_Default : System.Web.UI.Page
         hiMode.Value = "add";
     }
 
+    /// <summary>
+    /// 清除表單內容
+    /// </summary>
     private void clearForm()
     {
+        //清除 rblCONTRACT_TYPE_ID
+        rblCONTRACT_TYPE_ID.ClearSelection();
         tbTITLE.Text = string.Empty;
         tbSAP_NBR.Text = string.Empty;
         tbBPM_NBR.Text = string.Empty;
         tbSTART_DATE.Text = string.Empty;
         tbEND_DATE.Text = string.Empty;
-        tbVENDOR_ID.Text = string.Empty;
+        //tbVENDOR_ID.Text = string.Empty;
+        ddlVENDOR_ID.ClearSelection();
         tbCONTRACT_TYPE_ID.Text = string.Empty;
         tbTERM.Text = string.Empty;
         tbAMOUNT.Text = string.Empty;
@@ -128,8 +283,7 @@ public partial class CM_Default : System.Web.UI.Page
         string UPDATE_UID = "TEST";
         //int的另外處理
         int VENDOR_ID = 0;
-        int.TryParse(tbVENDOR_ID.Text, out VENDOR_ID);
-        
+        int.TryParse(ddlVENDOR_ID.SelectedValue, out VENDOR_ID);        
         int CONTRACT_TYPE_ID = 0;
         int.TryParse(tbCONTRACT_TYPE_ID.Text, out CONTRACT_TYPE_ID);
         int TERM = 0;
@@ -315,7 +469,7 @@ INSERT INTO [ZFCF_CM_CONTRACT]  (
                             //資料綁定
                             hid.Value = id;
                             tbTITLE.Text = row["TITLE"].ToString();
-                            tbVENDOR_ID.Text = row["VENDOR_ID"].ToString();
+                            ddlVENDOR_ID.SelectedValue = row["VENDOR_ID"].ToString();
                             tbSAP_NBR.Text = row["SAP_NBR"].ToString();
                             tbBPM_NBR.Text = row["BPM_NBR"].ToString();
                             tbCONTRACT_TYPE_ID.Text = row["CONTRACT_TYPE_ID"].ToString();
@@ -376,10 +530,57 @@ INSERT INTO [ZFCF_CM_CONTRACT]  (
         }
     }
 
+    /// <summary>
+    /// 頁碼改變
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
     protected void gvList_PageIndexChanging(object sender, GridViewPageEventArgs e)
     {
         var page = e.NewPageIndex;
         gvList.PageIndex = page;
+        BindData();
+    }
+
+    /// <summary>
+    /// 分頁大小改變觸發
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    protected void ddlPageSize_SelectedIndexChanged(object sender, EventArgs e)
+    {
+        //修改頁面大小
+        gvList.PageSize = int.Parse(ddlPageSize.SelectedValue);
+        gvList.PageSize = Convert.ToInt32(ddlPageSize.SelectedValue);
+        //修改頁面大小後跑回第一頁
+        gvList.PageIndex = 0;
+        //重新綁定資料
+        BindData();
+    }
+
+    /// <summary>
+    /// 搜尋
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    protected void btnSearch_Click(object sender, EventArgs e)
+    {
+        BindData();
+    }
+
+    /// <summary>
+    /// 清除搜尋
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    protected void btnClear_Click(object sender, EventArgs e)
+    {
+        tbBPM_Keyword.Text = string.Empty;
+        tbSAP_Keyword.Text = string.Empty;
+        tbSAP_BPM_Keyword.Text = string.Empty;
+        tbAMOUNT_START.Text = string.Empty;
+        tbAMOUNT_END.Text = string.Empty;
+        tbVENDER_NAME_Keyword.Text = string.Empty;
         BindData();
     }
 }
